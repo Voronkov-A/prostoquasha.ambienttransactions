@@ -1,5 +1,9 @@
+using AutoFixture;
 using Dapper;
+using IntegrationMocks.Core;
+using IntegrationMocks.Modules.MySql;
 using MySql.Data.MySqlClient;
+using Prostoquasha.AmbientTransactions.MySql.Tests.TestCommon;
 using System;
 using System.Collections.Generic;
 using System.Data;
@@ -10,33 +14,40 @@ using Xunit;
 
 namespace Prostoquasha.AmbientTransactions.MySql.Tests;
 
-internal sealed class MySqlDbConnectionProviderTests : IAsyncLifetime
+public sealed class MySqlDbConnectionProviderTests : IAsyncLifetime, IClassFixture<MySqlFixture>
 {
-    private MySqlDbConnectionProvider _sut;
-    private string _firstConnectionString;
+    private readonly IInfrastructureService<MySqlServiceContract> _mySql;
+    private readonly MySqlDbConnectionProvider _sut;
+    private readonly string _firstConnectionString;
+    private readonly string _secondConnectionString;
+    private readonly string _firstDatabase;
+    private readonly string _secondDatabase;
+
+    public MySqlDbConnectionProviderTests(MySqlFixture mySqlFixture)
+    {
+        var fixture = new Fixture();
+        _mySql = mySqlFixture.MySql;
+        _firstDatabase = fixture.Create<string>();
+        _secondDatabase = fixture.Create<string>();
+        _firstConnectionString = _mySql.CreateMySqlConnectionString(_firstDatabase);
+        _secondConnectionString = _mySql.CreateMySqlConnectionString(_secondDatabase);
+        _sut = new MySqlDbConnectionProvider();
+    }
 
     public async Task InitializeAsync()
     {
-        s_infrastructure = new GlobalInfrastructureFixture();
-        var mySql = await s_infrastructure.GetAsync<MySqlServiceInterface>();
-        var fixture = new Fixture();
-        s_firstDatabase = fixture.Create<string>();
-        s_secondDatabase = fixture.Create<string>();
-        s_firstConnectionString = mySql.CreateConnectionString(s_firstDatabase);
-        s_secondConnectionString = mySql.CreateConnectionString(s_secondDatabase);
-
-        await using var masterConnection = new MySqlConnection(mySql.CreateConnectionString("mysql"));
+        await using var masterConnection = new MySqlConnection(_mySql.CreateMySqlConnectionString());
         await masterConnection.ExecuteAsync(
             $"""
-            CREATE DATABASE `{s_firstDatabase}`;
-            CREATE DATABASE `{s_secondDatabase}`;
+            CREATE DATABASE `{_firstDatabase}`;
+            CREATE DATABASE `{_secondDatabase}`;
             """);
-        await using var firstConnection = new MySqlConnection(s_firstConnectionString);
+        await using var firstConnection = new MySqlConnection(_firstConnectionString);
         await firstConnection.ExecuteAsync(
             """
             CREATE TABLE test (id text);
             """);
-        await using var secondConnection = new MySqlConnection(s_secondConnectionString);
+        await using var secondConnection = new MySqlConnection(_secondConnectionString);
         await secondConnection.ExecuteAsync(
             """
             CREATE TABLE test (id text);
@@ -45,14 +56,12 @@ internal sealed class MySqlDbConnectionProviderTests : IAsyncLifetime
 
     public async Task DisposeAsync()
     {
-        var mySql = await s_infrastructure.GetAsync<MySqlServiceInterface>();
-        await using var masterConnection = new MySqlConnection(mySql.CreateConnectionString("mysql"));
+        await using var masterConnection = new MySqlConnection(_mySql.CreateMySqlConnectionString());
         await masterConnection.ExecuteAsync(
             $"""
-            DROP DATABASE `{s_firstDatabase}`;
-            DROP DATABASE `{s_secondDatabase}`;
+            DROP DATABASE `{_firstDatabase}`;
+            DROP DATABASE `{_secondDatabase}`;
             """);
-        await s_infrastructure.DisposeAsync();
     }
 
     [Fact]
