@@ -371,7 +371,7 @@ public sealed class MySqlDbConnectionProviderTests : IAsyncLifetime, IClassFixtu
         Assert.Equal(thirdId, thirdItem);
         Assert.Null(firstItemFromInnerTransaction);
         // ReadCommitted => can see
-        Assert.Null(secondItemFromOuterTransaction);
+        Assert.Equal(secondId, secondItemFromOuterTransaction);
     }
 
     [Fact]
