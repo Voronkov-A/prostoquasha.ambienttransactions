@@ -335,7 +335,7 @@ public sealed class AmbientDbConnectionProvider<TConnection> : IAmbientDbConnect
     }
 }
 
-public static class DbConnectionProvider
+public static class AmbientDbConnectionProvider
 {
     public static AmbientDbConnectionProvider<TConnection> CreateNonConcurrent<TConnection>(
         Func<string, TConnection> connectionFactory)

@@ -17,7 +17,6 @@ namespace Prostoquasha.AmbientTransactions.Core.Tests;
 public sealed class MySqlAmbientDbConnectionProviderTests : IAsyncLifetime, IClassFixture<MySqlFixture>
 {
     private readonly IInfrastructureService<MySqlServiceContract> _mySql;
-    private readonly IAmbientDbConnectionProvider<MySqlConnection> _sut;
     private readonly string _firstConnectionString;
     private readonly string _secondConnectionString;
     private readonly string _firstDatabase;
@@ -31,7 +30,6 @@ public sealed class MySqlAmbientDbConnectionProviderTests : IAsyncLifetime, ICla
         _secondDatabase = fixture.Create<string>();
         _firstConnectionString = _mySql.CreateMySqlConnectionString(_firstDatabase);
         _secondConnectionString = _mySql.CreateMySqlConnectionString(_secondDatabase);
-        _sut = DbConnectionProvider.CreateNonConcurrent(s => new MySqlConnection(s));
     }
 
     public async Task InitializeAsync()
@@ -64,12 +62,14 @@ public sealed class MySqlAmbientDbConnectionProviderTests : IAsyncLifetime, ICla
             """);
     }
 
-    [Fact]
-    public async Task CommitAsync_commits_transaction()
+    [Theory]
+    [MemberData(nameof(AllTestCases))]
+    public async Task CommitAsync_commits_transaction(TestCase testCase)
     {
+        await using var sut = testCase.CreateProvider(this);
         const string id = nameof(CommitAsync_commits_transaction);
 
-        await using (var transaction = await _sut.BeginTransactionAsync(
+        await using (var transaction = await sut.BeginTransactionAsync(
             _firstConnectionString,
             new AmbientTransactionOptions
             {
@@ -78,7 +78,7 @@ public sealed class MySqlAmbientDbConnectionProviderTests : IAsyncLifetime, ICla
             },
             CancellationToken.None))
         {
-            await using var connection = _sut.GetConnection(_firstConnectionString);
+            await using var connection = sut.GetConnection(_firstConnectionString);
             await InsertAsync(connection.Connection, id);
             await transaction.CommitAsync(CancellationToken.None);
         }
@@ -88,12 +88,14 @@ public sealed class MySqlAmbientDbConnectionProviderTests : IAsyncLifetime, ICla
         Assert.Equal(id, item);
     }
 
-    [Fact]
-    public async Task Explicit_CommitAsync_is_required()
+    [Theory]
+    [MemberData(nameof(AllTestCases))]
+    public async Task Explicit_CommitAsync_is_required(TestCase testCase)
     {
+        await using var sut = testCase.CreateProvider(this);
         const string id = nameof(Explicit_CommitAsync_is_required);
 
-        await using (var transaction = await _sut.BeginTransactionAsync(
+        await using (var transaction = await sut.BeginTransactionAsync(
             _firstConnectionString,
             new AmbientTransactionOptions
             {
@@ -102,7 +104,7 @@ public sealed class MySqlAmbientDbConnectionProviderTests : IAsyncLifetime, ICla
             },
             CancellationToken.None))
         {
-            await using var connection = _sut.GetConnection(_firstConnectionString);
+            await using var connection = sut.GetConnection(_firstConnectionString);
             await InsertAsync(connection.Connection, id);
         }
 
@@ -111,16 +113,18 @@ public sealed class MySqlAmbientDbConnectionProviderTests : IAsyncLifetime, ICla
         Assert.Null(item);
     }
 
-    [Fact]
-    public async Task BeginTransactionAsync_enlists_transaction_when_mode_is_Required()
+    [Theory]
+    [MemberData(nameof(AllTestCases))]
+    public async Task BeginTransactionAsync_enlists_transaction_when_mode_is_Required(TestCase testCase)
     {
+        await using var sut = testCase.CreateProvider(this);
         const string firstId = nameof(BeginTransactionAsync_enlists_transaction_when_mode_is_Required);
         const string secondId = $"{nameof(BeginTransactionAsync_enlists_transaction_when_mode_is_Required)}_2";
         const string thirdId = $"{nameof(BeginTransactionAsync_enlists_transaction_when_mode_is_Required)}_3";
         string? firstItemFromInnerTransaction;
         string? secondItemFromOuterTransaction;
 
-        await using (var outerTransaction = await _sut.BeginTransactionAsync(
+        await using (var outerTransaction = await sut.BeginTransactionAsync(
             _firstConnectionString,
             new AmbientTransactionOptions
             {
@@ -129,10 +133,10 @@ public sealed class MySqlAmbientDbConnectionProviderTests : IAsyncLifetime, ICla
             },
             CancellationToken.None))
         {
-            await using var outerConnection = _sut.GetConnection(_firstConnectionString);
+            await using var outerConnection = sut.GetConnection(_firstConnectionString);
             await InsertAsync(outerConnection.Connection, firstId);
 
-            await using (var innerTransaction = await _sut.BeginTransactionAsync(
+            await using (var innerTransaction = await sut.BeginTransactionAsync(
                 _firstConnectionString,
                 new AmbientTransactionOptions
                 {
@@ -141,7 +145,7 @@ public sealed class MySqlAmbientDbConnectionProviderTests : IAsyncLifetime, ICla
                 },
                 CancellationToken.None))
             {
-                await using var innerConnection = _sut.GetConnection(_firstConnectionString);
+                await using var innerConnection = sut.GetConnection(_firstConnectionString);
                 firstItemFromInnerTransaction = await SelectAsync(innerConnection.Connection, firstId);
                 await InsertAsync(innerConnection.Connection, secondId);
                 await innerTransaction.CommitAsync(CancellationToken.None);
@@ -163,16 +167,18 @@ public sealed class MySqlAmbientDbConnectionProviderTests : IAsyncLifetime, ICla
         Assert.Equal(secondId, secondItemFromOuterTransaction);
     }
 
-    [Fact]
-    public async Task CommitAsync_throws_when_mode_is_Required_and_inner_transaction_is_not_committed()
+    [Theory]
+    [MemberData(nameof(AllTestCases))]
+    public async Task CommitAsync_throws_when_mode_is_Required_and_inner_transaction_is_not_committed(TestCase testCase)
     {
+        await using var sut = testCase.CreateProvider(this);
         const string firstId = nameof(CommitAsync_throws_when_mode_is_Required_and_inner_transaction_is_not_committed);
         const string secondId = $"{nameof(CommitAsync_throws_when_mode_is_Required_and_inner_transaction_is_not_committed)}_2";
         const string thirdId = $"{nameof(CommitAsync_throws_when_mode_is_Required_and_inner_transaction_is_not_committed)}_3";
         string? firstItemFromInnerTransaction;
         string? secondItemFromOuterTransaction;
 
-        await using (var outerTransaction = await _sut.BeginTransactionAsync(
+        await using (var outerTransaction = await sut.BeginTransactionAsync(
             _firstConnectionString,
             new AmbientTransactionOptions
             {
@@ -181,10 +187,10 @@ public sealed class MySqlAmbientDbConnectionProviderTests : IAsyncLifetime, ICla
             },
             CancellationToken.None))
         {
-            await using var outerConnection = _sut.GetConnection(_firstConnectionString);
+            await using var outerConnection = sut.GetConnection(_firstConnectionString);
             await InsertAsync(outerConnection.Connection, firstId);
 
-            await using (var innerTransaction = await _sut.BeginTransactionAsync(
+            await using (var innerTransaction = await sut.BeginTransactionAsync(
                 _firstConnectionString,
                 new AmbientTransactionOptions
                 {
@@ -193,7 +199,7 @@ public sealed class MySqlAmbientDbConnectionProviderTests : IAsyncLifetime, ICla
                 },
                 CancellationToken.None))
             {
-                await using var innerConnection = _sut.GetConnection(_firstConnectionString);
+                await using var innerConnection = sut.GetConnection(_firstConnectionString);
                 firstItemFromInnerTransaction = await SelectAsync(innerConnection.Connection, firstId);
                 await InsertAsync(innerConnection.Connection, secondId);
             }
@@ -217,16 +223,18 @@ public sealed class MySqlAmbientDbConnectionProviderTests : IAsyncLifetime, ICla
         Assert.Equal(secondId, secondItemFromOuterTransaction);
     }
 
-    [Fact]
-    public async Task BeginTransactionAsync_does_not_enlist_transaction_when_mode_is_RequiresNew()
+    [Theory]
+    [MemberData(nameof(AllTestCases))]
+    public async Task BeginTransactionAsync_does_not_enlist_transaction_when_mode_is_RequiresNew(TestCase testCase)
     {
+        await using var sut = testCase.CreateProvider(this);
         const string firstId = nameof(BeginTransactionAsync_does_not_enlist_transaction_when_mode_is_RequiresNew);
         const string secondId = $"{nameof(BeginTransactionAsync_does_not_enlist_transaction_when_mode_is_RequiresNew)}_2";
         const string thirdId = $"{nameof(BeginTransactionAsync_does_not_enlist_transaction_when_mode_is_RequiresNew)}_3";
         string? firstItemFromInnerTransaction;
         string? secondItemFromOuterTransaction;
 
-        await using (var outerTransaction = await _sut.BeginTransactionAsync(
+        await using (var outerTransaction = await sut.BeginTransactionAsync(
             _firstConnectionString,
             new AmbientTransactionOptions
             {
@@ -235,10 +243,10 @@ public sealed class MySqlAmbientDbConnectionProviderTests : IAsyncLifetime, ICla
             },
             CancellationToken.None))
         {
-            await using var outerConnection = _sut.GetConnection(_firstConnectionString);
+            await using var outerConnection = sut.GetConnection(_firstConnectionString);
             await InsertAsync(outerConnection.Connection, firstId);
 
-            await using (var innerTransaction = await _sut.BeginTransactionAsync(
+            await using (var innerTransaction = await sut.BeginTransactionAsync(
                 _firstConnectionString,
                 new AmbientTransactionOptions
                 {
@@ -247,7 +255,7 @@ public sealed class MySqlAmbientDbConnectionProviderTests : IAsyncLifetime, ICla
                 },
                 CancellationToken.None))
             {
-                await using var innerConnection = _sut.GetConnection(_firstConnectionString);
+                await using var innerConnection = sut.GetConnection(_firstConnectionString);
                 firstItemFromInnerTransaction = await SelectAsync(innerConnection.Connection, firstId);
                 await InsertAsync(innerConnection.Connection, secondId);
                 await innerTransaction.CommitAsync(CancellationToken.None);
@@ -270,16 +278,19 @@ public sealed class MySqlAmbientDbConnectionProviderTests : IAsyncLifetime, ICla
         Assert.Equal(secondId, secondItemFromOuterTransaction);
     }
 
-    [Fact]
-    public async Task CommitAsync_does_not_throw_when_mode_is_RequiresNew_and_inner_transaction_is_not_committed()
+    [Theory]
+    [MemberData(nameof(AllTestCases))]
+    public async Task CommitAsync_does_not_throw_when_mode_is_RequiresNew_and_inner_transaction_is_not_committed(
+        TestCase testCase)
     {
+        await using var sut = testCase.CreateProvider(this);
         const string firstId = nameof(CommitAsync_does_not_throw_when_mode_is_RequiresNew_and_inner_transaction_is_not_committed);
         const string secondId = $"{nameof(CommitAsync_does_not_throw_when_mode_is_RequiresNew_and_inner_transaction_is_not_committed)}_2";
         const string thirdId = $"{nameof(CommitAsync_does_not_throw_when_mode_is_RequiresNew_and_inner_transaction_is_not_committed)}_3";
         string? firstItemFromInnerTransaction;
         string? secondItemFromOuterTransaction;
 
-        await using (var outerTransaction = await _sut.BeginTransactionAsync(
+        await using (var outerTransaction = await sut.BeginTransactionAsync(
             _firstConnectionString,
             new AmbientTransactionOptions
             {
@@ -288,10 +299,10 @@ public sealed class MySqlAmbientDbConnectionProviderTests : IAsyncLifetime, ICla
             },
             CancellationToken.None))
         {
-            await using var outerConnection = _sut.GetConnection(_firstConnectionString);
+            await using var outerConnection = sut.GetConnection(_firstConnectionString);
             await InsertAsync(outerConnection.Connection, firstId);
 
-            await using (var innerTransaction = await _sut.BeginTransactionAsync(
+            await using (var innerTransaction = await sut.BeginTransactionAsync(
                 _firstConnectionString,
                 new AmbientTransactionOptions
                 {
@@ -300,7 +311,7 @@ public sealed class MySqlAmbientDbConnectionProviderTests : IAsyncLifetime, ICla
                 },
                 CancellationToken.None))
             {
-                await using var innerConnection = _sut.GetConnection(_firstConnectionString);
+                await using var innerConnection = sut.GetConnection(_firstConnectionString);
                 firstItemFromInnerTransaction = await SelectAsync(innerConnection.Connection, firstId);
                 await InsertAsync(innerConnection.Connection, secondId);
             }
@@ -321,16 +332,18 @@ public sealed class MySqlAmbientDbConnectionProviderTests : IAsyncLifetime, ICla
         Assert.Null(secondItemFromOuterTransaction);
     }
 
-    [Fact]
-    public async Task BeginTransactionAsync_does_not_enlist_transaction_when_mode_is_Suppress()
+    [Theory]
+    [MemberData(nameof(AllTestCases))]
+    public async Task BeginTransactionAsync_does_not_enlist_transaction_when_mode_is_Suppress(TestCase testCase)
     {
+        await using var sut = testCase.CreateProvider(this);
         const string firstId = nameof(BeginTransactionAsync_does_not_enlist_transaction_when_mode_is_Suppress);
         const string secondId = $"{nameof(BeginTransactionAsync_does_not_enlist_transaction_when_mode_is_Suppress)}_2";
         const string thirdId = $"{nameof(BeginTransactionAsync_does_not_enlist_transaction_when_mode_is_Suppress)}_3";
         string? firstItemFromInnerTransaction;
         string? secondItemFromOuterTransaction;
 
-        await using (var outerTransaction = await _sut.BeginTransactionAsync(
+        await using (var outerTransaction = await sut.BeginTransactionAsync(
             _firstConnectionString,
             new AmbientTransactionOptions
             {
@@ -339,10 +352,10 @@ public sealed class MySqlAmbientDbConnectionProviderTests : IAsyncLifetime, ICla
             },
             CancellationToken.None))
         {
-            await using var outerConnection = _sut.GetConnection(_firstConnectionString);
+            await using var outerConnection = sut.GetConnection(_firstConnectionString);
             await InsertAsync(outerConnection.Connection, firstId);
 
-            await using (var innerTransaction = await _sut.BeginTransactionAsync(
+            await using (var innerTransaction = await sut.BeginTransactionAsync(
                 _firstConnectionString,
                 new AmbientTransactionOptions
                 {
@@ -351,7 +364,7 @@ public sealed class MySqlAmbientDbConnectionProviderTests : IAsyncLifetime, ICla
                 },
                 CancellationToken.None))
             {
-                await using var innerConnection = _sut.GetConnection(_firstConnectionString);
+                await using var innerConnection = sut.GetConnection(_firstConnectionString);
                 firstItemFromInnerTransaction = await SelectAsync(innerConnection.Connection, firstId);
                 await InsertAsync(innerConnection.Connection, secondId);
                 await innerTransaction.CommitAsync(CancellationToken.None);
@@ -374,16 +387,19 @@ public sealed class MySqlAmbientDbConnectionProviderTests : IAsyncLifetime, ICla
         Assert.Equal(secondId, secondItemFromOuterTransaction);
     }
 
-    [Fact]
-    public async Task CommitAsync_does_not_throw_when_mode_is_Suppress_and_inner_transaction_is_not_committed()
+    [Theory]
+    [MemberData(nameof(AllTestCases))]
+    public async Task CommitAsync_does_not_throw_when_mode_is_Suppress_and_inner_transaction_is_not_committed(
+        TestCase testCase)
     {
+        await using var sut = testCase.CreateProvider(this);
         const string firstId = nameof(CommitAsync_does_not_throw_when_mode_is_Suppress_and_inner_transaction_is_not_committed);
         const string secondId = $"{nameof(CommitAsync_does_not_throw_when_mode_is_Suppress_and_inner_transaction_is_not_committed)}_2";
         const string thirdId = $"{nameof(CommitAsync_does_not_throw_when_mode_is_Suppress_and_inner_transaction_is_not_committed)}_3";
         string? firstItemFromInnerTransaction;
         string? secondItemFromOuterTransaction;
 
-        await using (var outerTransaction = await _sut.BeginTransactionAsync(
+        await using (var outerTransaction = await sut.BeginTransactionAsync(
             _firstConnectionString,
             new AmbientTransactionOptions
             {
@@ -392,10 +408,10 @@ public sealed class MySqlAmbientDbConnectionProviderTests : IAsyncLifetime, ICla
             },
             CancellationToken.None))
         {
-            await using var outerConnection = _sut.GetConnection(_firstConnectionString);
+            await using var outerConnection = sut.GetConnection(_firstConnectionString);
             await InsertAsync(outerConnection.Connection, firstId);
 
-            await using (var innerTransaction = await _sut.BeginTransactionAsync(
+            await using (var innerTransaction = await sut.BeginTransactionAsync(
                 _firstConnectionString,
                 new AmbientTransactionOptions
                 {
@@ -404,7 +420,7 @@ public sealed class MySqlAmbientDbConnectionProviderTests : IAsyncLifetime, ICla
                 },
                 CancellationToken.None))
             {
-                await using var innerConnection = _sut.GetConnection(_firstConnectionString);
+                await using var innerConnection = sut.GetConnection(_firstConnectionString);
                 firstItemFromInnerTransaction = await SelectAsync(innerConnection.Connection, firstId);
                 await InsertAsync(innerConnection.Connection, secondId);
             }
@@ -425,9 +441,11 @@ public sealed class MySqlAmbientDbConnectionProviderTests : IAsyncLifetime, ICla
         Assert.Equal(secondItem, secondItemFromOuterTransaction);
     }
 
-    [Fact]
-    public async Task BeginTransactionAsync_handles_parallel_transactions()
+    [Theory]
+    [MemberData(nameof(ConcurrentTestCases))]
+    public async Task BeginTransactionAsync_handles_parallel_transactions(TestCase testCase)
     {
+        await using var sut = testCase.CreateProvider(this);
         const string idPrefix = nameof(BeginTransactionAsync_handles_parallel_transactions);
         const int workerCount = 10;
         using var barrier = new Barrier(workerCount);
@@ -445,7 +463,7 @@ public sealed class MySqlAmbientDbConnectionProviderTests : IAsyncLifetime, ICla
 
         async Task<string> DoWorkAsync(int workerIndex, CancellationToken cancellationToken)
         {
-            await using var transaction = await _sut.BeginTransactionAsync(
+            await using var transaction = await sut.BeginTransactionAsync(
                 _firstConnectionString,
                 new AmbientTransactionOptions
                 {
@@ -453,13 +471,46 @@ public sealed class MySqlAmbientDbConnectionProviderTests : IAsyncLifetime, ICla
                     IsolationLevel = IsolationLevel.ReadCommitted
                 },
                 CancellationToken.None);
-            await using var connection = _sut.GetConnection(_firstConnectionString);
+            await using var connection = sut.GetConnection(_firstConnectionString);
             await InsertAsync(connection.Connection, $"{idPrefix}_{workerIndex}");
             var existingItems = await SelectAllByPrefixAsync(connection.Connection, idPrefix);
             barrier.SignalAndWait(cancellationToken);
             await transaction.CommitAsync(cancellationToken);
             return existingItems.Single();
         }
+    }
+
+    public static IEnumerable<object[]> AllTestCases()
+    {
+        return NonConcurrentTestCases().Concat(ConcurrentTestCases());
+    }
+
+    public static IEnumerable<object[]> ConcurrentTestCases()
+    {
+        yield return new object[]
+        {
+            new TestCase(
+                "Concurrent",
+                _ => AmbientDbConnectionProvider.CreateConcurrent(s => new MySqlConnection(s)))
+        };
+        yield return new object[]
+        {
+            new TestCase(
+                "Immutable",
+                t => AmbientDbConnectionProvider.CreateImmutable(
+                    [t._firstConnectionString, t._secondConnectionString],
+                    s => new MySqlConnection(s)))
+        };
+    }
+
+    public static IEnumerable<object[]> NonConcurrentTestCases()
+    {
+        yield return new object[]
+        {
+            new TestCase(
+                "NonConcurrent",
+                _ => AmbientDbConnectionProvider.CreateNonConcurrent(s => new MySqlConnection(s)))
+        };
     }
 
     private static async Task InsertAsync(IDbConnection connection, string id)
@@ -477,5 +528,20 @@ public sealed class MySqlAmbientDbConnectionProviderTests : IAsyncLifetime, ICla
     private static async Task<IEnumerable<string>> SelectAllByPrefixAsync(IDbConnection connection, string id)
     {
         return await connection.QueryAsync<string>("select id from test where id like @Id;", new { Id = $"{id}%" });
+    }
+
+    public sealed class TestCase(
+        string name,
+        Func<MySqlAmbientDbConnectionProviderTests, IAmbientDbConnectionProvider<MySqlConnection>> providerFactory)
+    {
+        private readonly Func<MySqlAmbientDbConnectionProviderTests, IAmbientDbConnectionProvider<MySqlConnection>>
+            _providerFactory = providerFactory;
+
+        public string Name { get; } = name;
+
+        public IAmbientDbConnectionProvider<MySqlConnection> CreateProvider(MySqlAmbientDbConnectionProviderTests self)
+        {
+            return _providerFactory(self);
+        }
     }
 }
