@@ -19,7 +19,7 @@ jobs:
       - name: Build
         run: dotnet build -c Release src/cs/Prostoquasha.AmbientTransactions.nuget.slnf
       - name: Pack
-        run: dotnet pack -c Release -p:PackageVersion="${{ env.VERSION }}" -p:PackageProjectUrl="https://github.com/Voronkov-A/Prostoquasha.AmbientTransactions" -p:Authors="Voronkov-A" src/cs/Prostoquasha.AmbientTransactions.nuget.slnf
+        run: dotnet pack -c Release -p:PackageVersion="${{ env.VERSION }}" -p:PackageProjectUrl="https://github.com/Voronkov-A/prostoquasha.ambienttransactions" -p:Authors="Voronkov-A" src/cs/Prostoquasha.AmbientTransactions.nuget.slnf
       - name: Tag and release
         if: ${{ env.IS_RELEASE == 'true' }}
         uses: avakar/tag-and-release@v1
