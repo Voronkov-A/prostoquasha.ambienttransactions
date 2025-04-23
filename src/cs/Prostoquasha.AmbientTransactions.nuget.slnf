@@ -1,0 +1,8 @@
+{
+  "solution": {
+    "path": "Prostoquasha.AmbientTransactions.sln",
+    "projects": [
+      "Prostoquasha.AmbientTransactions.Core\\Prostoquasha.AmbientTransactions.Core.csproj"
+    ]
+  }
+}
