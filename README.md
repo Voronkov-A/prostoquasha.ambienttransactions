@@ -1,7 +1,7 @@
 # Prostoquasha.AmbientTransactions
 
 ## Brief
-Minimalistic ambient transaction/connection provider .
+Minimalistic ambient transaction/connection provider inspired by System.Transactions.TransactionScope design. Unlike TransactionScope, this provider does not try to support distributed transactions.
 
 ## Nuget
 * [Prostoquasha.AmbientTransactions.Core](https://www.nuget.org/packages/Prostoquasha.AmbientTransactions.Core/)
