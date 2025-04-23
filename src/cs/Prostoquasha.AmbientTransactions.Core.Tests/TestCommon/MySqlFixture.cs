@@ -4,7 +4,7 @@ using System;
 using System.Threading.Tasks;
 using Xunit;
 
-namespace Prostoquasha.AmbientTransactions.MySql.Tests.TestCommon;
+namespace Prostoquasha.AmbientTransactions.Core.Tests.TestCommon;
 
 public sealed class MySqlFixture : IAsyncLifetime, IAsyncDisposable
 {

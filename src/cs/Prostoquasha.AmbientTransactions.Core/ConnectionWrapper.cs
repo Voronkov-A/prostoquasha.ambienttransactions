@@ -2,13 +2,16 @@ using System;
 using System.Data.Common;
 using System.Threading.Tasks;
 
-namespace Prostoquasha.AmbientTransactions.MySql;
+namespace Prostoquasha.AmbientTransactions.Core;
 
-public sealed class ConnectionWrapper(DbConnection connection, bool leaveOpen) : IDisposable, IAsyncDisposable
+public sealed class ConnectionWrapper<TConnection>(TConnection connection, bool leaveOpen) :
+    IDisposable,
+    IAsyncDisposable
+    where TConnection : DbConnection
 {
     private readonly bool _leaveOpen = leaveOpen;
 
-    public DbConnection Connection { get; } = connection;
+    public TConnection Connection { get; } = connection;
 
     public void Dispose()
     {

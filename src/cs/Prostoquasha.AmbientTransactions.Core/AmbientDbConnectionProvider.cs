@@ -1,4 +1,4 @@
-using MySql.Data.MySqlClient;
+using Prostoquasha.AmbientTransactions.Core.Registries;
 using System;
 using System.Collections.Generic;
 using System.Data;
@@ -8,15 +8,25 @@ using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
 
-namespace Prostoquasha.AmbientTransactions.MySql;
+namespace Prostoquasha.AmbientTransactions.Core;
 
-public sealed class MySqlDbConnectionProvider : IDisposable, IAsyncDisposable
+public sealed class AmbientDbConnectionProvider<TConnection> : IAmbientDbConnectionProvider<TConnection>
+    where TConnection : DbConnection
 {
-    private readonly Dictionary<string, AsyncLocalStack<TransactionSlot>> _transactionStacks = new();
+    private readonly Func<string, TConnection> _connectionFactory;
+    private readonly IRegistry<AsyncLocalStack<TransactionSlot>> _transactionStacks;
+
+    private AmbientDbConnectionProvider(
+        IRegistry<AsyncLocalStack<TransactionSlot>> transactionStacks,
+        Func<string, TConnection> connectionFactory)
+    {
+        _transactionStacks = transactionStacks;
+        _connectionFactory = connectionFactory;
+    }
 
     public void Dispose()
     {
-        var transactions = _transactionStacks.Values.SelectMany(x => x).Select(x => x.Transaction).ToList();
+        var transactions = _transactionStacks.SelectMany(x => x).Select(x => x.Transaction).ToList();
 
         foreach (var transaction in transactions)
         {
@@ -26,7 +36,7 @@ public sealed class MySqlDbConnectionProvider : IDisposable, IAsyncDisposable
 
     public async ValueTask DisposeAsync()
     {
-        var transactions = _transactionStacks.Values.SelectMany(x => x).Select(x => x.Transaction).ToList();
+        var transactions = _transactionStacks.SelectMany(x => x).Select(x => x.Transaction).ToList();
 
         foreach (var transaction in transactions)
         {
@@ -49,25 +59,47 @@ public sealed class MySqlDbConnectionProvider : IDisposable, IAsyncDisposable
         return SetTransactionAsync(slot, connectionString, options, cancellationToken);
     }
 
-    public ConnectionWrapper GetConnection(string connectionString)
+    public ConnectionWrapper<TConnection> GetConnection(string connectionString)
     {
-        if (_transactionStacks.TryGetValue(connectionString, out var stack)
-            && TryPeekTransaction(stack, out var transaction))
+        var stack = _transactionStacks.GetOrAdd(connectionString);
+
+        if (TryPeekTransaction(stack, out var transaction))
         {
-            return new ConnectionWrapper(transaction.State.DbConnection, leaveOpen: true);
+            return new ConnectionWrapper<TConnection>(transaction.State.DbConnection, leaveOpen: true);
         }
 
-        return new ConnectionWrapper(new MySqlConnection(connectionString), leaveOpen: false);
+        return new ConnectionWrapper<TConnection>(_connectionFactory(connectionString), leaveOpen: false);
+    }
+
+    internal static AmbientDbConnectionProvider<TConnection> CreateNonConcurrent(
+        Func<string, TConnection> connectionFactory)
+    {
+        var transactionStacks = new MutableRegistry<AsyncLocalStack<TransactionSlot>>(
+            () => new AsyncLocalStack<TransactionSlot>());
+        return new AmbientDbConnectionProvider<TConnection>(transactionStacks, connectionFactory);
+    }
+
+    internal static AmbientDbConnectionProvider<TConnection> CreateConcurrent(
+        Func<string, TConnection> connectionFactory)
+    {
+        var transactionStacks = new ConcurrentMutableRegistry<AsyncLocalStack<TransactionSlot>>(
+            () => new AsyncLocalStack<TransactionSlot>());
+        return new AmbientDbConnectionProvider<TConnection>(transactionStacks, connectionFactory);
+    }
+
+    internal static AmbientDbConnectionProvider<TConnection> CreateImmutable(
+        IEnumerable<string> connectionStrings,
+        Func<string, TConnection> connectionFactory)
+    {
+        var transactionStacks = new ImmutableRegistry<AsyncLocalStack<TransactionSlot>>(
+            connectionStrings,
+            () => new AsyncLocalStack<TransactionSlot>());
+        return new AmbientDbConnectionProvider<TConnection>(transactionStacks, connectionFactory);
     }
 
     private TransactionSlot CreateSlot(string connectionString)
     {
-        if (!_transactionStacks.TryGetValue(connectionString, out var stack))
-        {
-            stack = new AsyncLocalStack<TransactionSlot>();
-            _transactionStacks[connectionString] = stack;
-        }
-
+        var stack = _transactionStacks.GetOrAdd(connectionString);
         var slot = new TransactionSlot();
         stack.Push(slot);
         return slot;
@@ -85,8 +117,9 @@ public sealed class MySqlDbConnectionProvider : IDisposable, IAsyncDisposable
             {
                 case AmbientTransactionMode.Required:
                     {
-                        if (_transactionStacks.TryGetValue(connectionString, out var stack)
-                            && TryPeekTransaction(stack, out var transaction)
+                        var stack = _transactionStacks.GetOrAdd(connectionString);
+
+                        if (TryPeekTransaction(stack, out var transaction)
                             && transaction.State.DbTransaction != null)
                         {
                             ValidateIsolationLevel(transaction, options);
@@ -138,12 +171,12 @@ public sealed class MySqlDbConnectionProvider : IDisposable, IAsyncDisposable
         IsolationLevel? isolationLevel,
         CancellationToken cancellationToken)
     {
-        MySqlConnection? connection = null;
+        TConnection? connection = null;
         DbTransaction? transaction = null;
 
         try
         {
-            connection = new MySqlConnection(connectionString);
+            connection = _connectionFactory(connectionString);
             await connection.OpenAsync(cancellationToken);
 
             if (isolationLevel != null)
@@ -151,7 +184,7 @@ public sealed class MySqlDbConnectionProvider : IDisposable, IAsyncDisposable
                 transaction = await connection.BeginTransactionAsync(isolationLevel.Value, cancellationToken);
             }
 
-            var state = new SharedTransactionState(transaction, connection);
+            var state = new SharedTransactionState<TConnection>(transaction, connection);
             return new ManagedTransaction(this, state, connectionString);
         }
         catch
@@ -172,10 +205,7 @@ public sealed class MySqlDbConnectionProvider : IDisposable, IAsyncDisposable
 
     private void RemoveTransaction(ManagedTransaction transaction)
     {
-        if (!_transactionStacks.TryGetValue(transaction.ConnectionString, out var stack))
-        {
-            return;
-        }
+        var stack = _transactionStacks.GetOrAdd(transaction.ConnectionString);
 
         foreach (var stackItem in stack)
         {
@@ -238,13 +268,13 @@ public sealed class MySqlDbConnectionProvider : IDisposable, IAsyncDisposable
 
     private sealed class ManagedTransaction : ITransaction
     {
-        private readonly MySqlDbConnectionProvider _provider;
+        private readonly AmbientDbConnectionProvider<TConnection> _provider;
         private bool _disposed;
         private bool _committed;
 
         public ManagedTransaction(
-            MySqlDbConnectionProvider provider,
-            SharedTransactionState state,
+            AmbientDbConnectionProvider<TConnection> provider,
+            SharedTransactionState<TConnection> state,
             string connectionString)
         {
             _provider = provider;
@@ -256,7 +286,7 @@ public sealed class MySqlDbConnectionProvider : IDisposable, IAsyncDisposable
 
         public string ConnectionString { get; }
 
-        public SharedTransactionState State { get; }
+        public SharedTransactionState<TConnection> State { get; }
 
         public async Task CommitAsync(CancellationToken cancellationToken)
         {
@@ -302,5 +332,30 @@ public sealed class MySqlDbConnectionProvider : IDisposable, IAsyncDisposable
             await State.ReleaseAsync();
             _disposed = true;
         }
+    }
+}
+
+public static class DbConnectionProvider
+{
+    public static AmbientDbConnectionProvider<TConnection> CreateNonConcurrent<TConnection>(
+        Func<string, TConnection> connectionFactory)
+        where TConnection : DbConnection
+    {
+        return AmbientDbConnectionProvider<TConnection>.CreateNonConcurrent(connectionFactory);
+    }
+
+    public static AmbientDbConnectionProvider<TConnection> CreateConcurrent<TConnection>(
+        Func<string, TConnection> connectionFactory)
+        where TConnection : DbConnection
+    {
+        return AmbientDbConnectionProvider<TConnection>.CreateConcurrent(connectionFactory);
+    }
+
+    public static AmbientDbConnectionProvider<TConnection> CreateImmutable<TConnection>(
+        IEnumerable<string> connectionStrings,
+        Func<string, TConnection> connectionFactory)
+        where TConnection : DbConnection
+    {
+        return AmbientDbConnectionProvider<TConnection>.CreateImmutable(connectionStrings, connectionFactory);
     }
 }

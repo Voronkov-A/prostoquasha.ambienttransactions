@@ -4,7 +4,7 @@ using System.Collections.Generic;
 using System.Diagnostics.CodeAnalysis;
 using System.Threading;
 
-namespace Prostoquasha.AmbientTransactions.MySql;
+namespace Prostoquasha.AmbientTransactions.Core;
 
 internal sealed class AsyncLocalStack<T> : IEnumerable<T>
 {

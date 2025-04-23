@@ -3,7 +3,7 @@ using Dapper;
 using IntegrationMocks.Core;
 using IntegrationMocks.Modules.MySql;
 using MySql.Data.MySqlClient;
-using Prostoquasha.AmbientTransactions.MySql.Tests.TestCommon;
+using Prostoquasha.AmbientTransactions.Core.Tests.TestCommon;
 using System;
 using System.Collections.Generic;
 using System.Data;
@@ -12,18 +12,18 @@ using System.Threading;
 using System.Threading.Tasks;
 using Xunit;
 
-namespace Prostoquasha.AmbientTransactions.MySql.Tests;
+namespace Prostoquasha.AmbientTransactions.Core.Tests;
 
-public sealed class MySqlDbConnectionProviderTests : IAsyncLifetime, IClassFixture<MySqlFixture>
+public sealed class MySqlAmbientDbConnectionProviderTests : IAsyncLifetime, IClassFixture<MySqlFixture>
 {
     private readonly IInfrastructureService<MySqlServiceContract> _mySql;
-    private readonly MySqlDbConnectionProvider _sut;
+    private readonly IAmbientDbConnectionProvider<MySqlConnection> _sut;
     private readonly string _firstConnectionString;
     private readonly string _secondConnectionString;
     private readonly string _firstDatabase;
     private readonly string _secondDatabase;
 
-    public MySqlDbConnectionProviderTests(MySqlFixture mySqlFixture)
+    public MySqlAmbientDbConnectionProviderTests(MySqlFixture mySqlFixture)
     {
         var fixture = new Fixture();
         _mySql = mySqlFixture.MySql;
@@ -31,7 +31,7 @@ public sealed class MySqlDbConnectionProviderTests : IAsyncLifetime, IClassFixtu
         _secondDatabase = fixture.Create<string>();
         _firstConnectionString = _mySql.CreateMySqlConnectionString(_firstDatabase);
         _secondConnectionString = _mySql.CreateMySqlConnectionString(_secondDatabase);
-        _sut = new MySqlDbConnectionProvider();
+        _sut = DbConnectionProvider.CreateNonConcurrent(s => new MySqlConnection(s));
     }
 
     public async Task InitializeAsync()

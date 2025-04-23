@@ -1,4 +1,4 @@
-namespace Prostoquasha.AmbientTransactions.MySql;
+namespace Prostoquasha.AmbientTransactions.Core;
 
 public enum AmbientTransactionMode
 {

@@ -1,6 +1,6 @@
 using System.Data;
 
-namespace Prostoquasha.AmbientTransactions.MySql;
+namespace Prostoquasha.AmbientTransactions.Core;
 
 public sealed class AmbientTransactionOptions
 {

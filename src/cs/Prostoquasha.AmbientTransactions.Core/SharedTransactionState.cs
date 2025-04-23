@@ -3,10 +3,10 @@ using System.Data.Common;
 using System.Threading;
 using System.Threading.Tasks;
 
-namespace Prostoquasha.AmbientTransactions.MySql;
+namespace Prostoquasha.AmbientTransactions.Core;
 
-// TODO: do not share ownership. make outer transaction an unique owner.
-internal sealed class SharedTransactionState(DbTransaction? dbTransaction, DbConnection dbConnection)
+internal sealed class SharedTransactionState<TConnection>(DbTransaction? dbTransaction, TConnection dbConnection)
+    where TConnection : DbConnection
 {
     private bool _rolledBack;
     private int _uncommittedCounter;
@@ -14,7 +14,7 @@ internal sealed class SharedTransactionState(DbTransaction? dbTransaction, DbCon
 
     public DbTransaction? DbTransaction { get; } = dbTransaction;
 
-    public DbConnection DbConnection { get; } = dbConnection;
+    public TConnection DbConnection { get; } = dbConnection;
 
     public async Task CommitAsync(CancellationToken cancellationToken)
     {
